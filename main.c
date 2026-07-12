@@ -5,7 +5,7 @@
 #include <math.h>
 #include <ncurses.h>
 
-#define WORLD_SIZE 128
+#define WORLD_SIZE 40
 
 typedef struct {
   float velocity;
@@ -22,32 +22,40 @@ void cell_set(Cell cell, Cell* cells, int32_t i) {
   cells[i] = cell;
 }
 
-void world_simulate(const Cell *world, Cell *output, float dt) {
-  const float wave_speed = 1.0f;
-  const float damping = 0.02f;
+float dif2_num(float nx, float x, float px, float dx) {
+  return (nx - 2.0*x + px) / (dx * dx);
+}
 
+float dif2_cell(Cell nc, Cell c, Cell pc) {
+  return dif2_num(nc.position, c.position, pc.position, 1.0);
+}
+
+float dif2(const Cell* cells, int32_t x) {
+  return dif2_num(cell_get(cells, x-1).position,
+		  cell_get(cells, x).position,
+		  cell_get(cells, x+1).position, 1);
+}
+
+void world_simulate(const Cell* world, Cell* output, float dt) {
   for (size_t i = 0; i < WORLD_SIZE; ++i) {
-    size_t left  = (i + WORLD_SIZE - 1) % WORLD_SIZE;
-    size_t right = (i + 1) % WORLD_SIZE;
+    Cell l = cell_get(world, (int32_t)i - 1);
+    Cell r  = cell_get(world, (int32_t)i + 1);
+    Cell c = cell_get(world, (int32_t)i);
 
-    float center = world[i].position;
-    float laplacian =
-      world[left].position - 2.0f * center + world[right].position;
-
-    float acceleration = wave_speed * wave_speed * laplacian;
-
-    output[i].velocity =
-      (world[i].velocity + acceleration * dt) * (1.0f - damping * dt);
-
-    output[i].position =
-      center + output[i].velocity * dt;
+    float a = dif2_cell(l, c, r);
+    output[i] = c;
+    output[i].velocity += a * dt;
+    output[i].position += output[i].velocity * dt;
   }
 }
 
+//#define DRAW_VELOCITY
+
 void world_draw(Cell* world, int32_t cam, float max) {
-  for (size_t x = 0; x < (size_t)COLS; x++) {
+  for (size_t x = 0; x < (size_t)(COLS < WORLD_SIZE ? WORLD_SIZE : COLS); x++) {
     for (size_t y = 0; y < (size_t)LINES; y++) {
-      
+
+      if (x + cam > WORLD_SIZE) continue;
       float threshold = -((float)y / (float)LINES * 2.0 - 1.0);
       threshold *= max;
 
@@ -56,11 +64,33 @@ void world_draw(Cell* world, int32_t cam, float max) {
 
       if (world[x + cam].position <= threshold && threshold < 0)
 	mvaddch(y, x, '#');
+#ifdef DRAW_VELOCITY
+      if (world[x + cam].velocity >= threshold && threshold > 0)
+	mvaddch(y, x, '@');
+
+      if (world[x + cam].velocity <= threshold && threshold < 0)
+	mvaddch(y, x, '@');
+#endif
+      if (world[x + cam].position >= max)
+	mvaddch(0, x, '+');
+
+      if (world[x + cam].position <= -max)
+	mvaddch(COLS-1, x, '+');
       
       if (y == (size_t)LINES/2)
 	mvaddch(y, x, '$');
     }
   }
+}
+
+void world_write(const Cell* world) {
+  FILE* fd = fopen("world.txt", "w");
+  fprintf(fd, "#velocity position\n");
+  for (size_t i = 0; i < WORLD_SIZE; i++) {
+    fprintf(fd, "%f %f\n", world[i].velocity, world[i].position);
+  }
+  fflush(fd);
+  fclose(fd);
 }
 
 int main(void) {
@@ -82,10 +112,11 @@ int main(void) {
   offset -= COLS/2;
 
   while (running) {
-    world_simulate(world_back, world_front, 0.2);
+    world_simulate(world_back, world_front, 0.01);
     erase();
     world_draw(world_front, offset, scope);
     refresh();
+    world_write(world_front);
     
     Cell* t = world_back;
     world_back = world_front;
