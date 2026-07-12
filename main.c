@@ -5,7 +5,7 @@
 #include <math.h>
 #include <ncurses.h>
 
-#define WORLD_SIZE 40
+#define WORLD_SIZE 512
 
 typedef struct {
   float velocity;
@@ -51,46 +51,77 @@ void world_simulate(const Cell* world, Cell* output, float dt) {
 
 //#define DRAW_VELOCITY
 
-void world_draw(Cell* world, int32_t cam, float max) {
-  for (size_t x = 0; x < (size_t)(COLS < WORLD_SIZE ? WORLD_SIZE : COLS); x++) {
+typedef struct {
+  int32_t x;
+  float y;
+} Camera;
+
+void world_draw(const Cell* world, Camera camera) {
+  erase();
+  for (size_t x = 0; x < (size_t)(COLS < WORLD_SIZE - 1 ? WORLD_SIZE - 1 : COLS); x++) {
     for (size_t y = 0; y < (size_t)LINES; y++) {
 
-      if (x + cam > WORLD_SIZE) continue;
+      if (x + camera.x > WORLD_SIZE) continue;
       float threshold = -((float)y / (float)LINES * 2.0 - 1.0);
-      threshold *= max;
+      threshold *= camera.y;
 
-      if (world[x + cam].position >= threshold && threshold > 0)
+      if (world[x + camera.x].position >= threshold && threshold > 0)
 	mvaddch(y, x, '#');
 
-      if (world[x + cam].position <= threshold && threshold < 0)
+      if (world[x + camera.x].position <= threshold && threshold < 0)
 	mvaddch(y, x, '#');
 #ifdef DRAW_VELOCITY
-      if (world[x + cam].velocity >= threshold && threshold > 0)
+      if (world[x + camera.x].velocity >= threshold && threshold > 0)
 	mvaddch(y, x, '@');
 
-      if (world[x + cam].velocity <= threshold && threshold < 0)
+      if (world[x + camera.x].velocity <= threshold && threshold < 0)
 	mvaddch(y, x, '@');
 #endif
-      if (world[x + cam].position >= max)
+      if (world[x + camera.x].position >= camera.y)
 	mvaddch(0, x, '+');
 
-      if (world[x + cam].position <= -max)
+      if (world[x + camera.x].position <= -camera.y)
 	mvaddch(COLS-1, x, '+');
       
       if (y == (size_t)LINES/2)
 	mvaddch(y, x, '$');
     }
   }
+  refresh();
 }
 
-void world_write(const Cell* world) {
-  FILE* fd = fopen("world.txt", "w");
-  fprintf(fd, "#velocity position\n");
-  for (size_t i = 0; i < WORLD_SIZE; i++) {
-    fprintf(fd, "%f %f\n", world[i].velocity, world[i].position);
-  }
-  fflush(fd);
-  fclose(fd);
+void events(bool* paused, bool* running, Camera* camera, const Cell* world) {
+  do {
+    switch (getch()) {
+    case 'h':
+      camera->x -= 1;
+      break;
+    case 'l':
+      camera->x += 1;
+      break;
+    case KEY_LEFT:
+      camera->x -= 10;
+      break;
+    case KEY_RIGHT:
+      camera->x += 10;
+      break;
+    case 'j':
+      camera->y *= 0.8;
+      break;
+    case 'k':
+      camera->y *= 1.2;
+      break;
+    case 'q':
+      *running = false;
+      break;
+    case ' ':
+      nodelay(stdscr, *paused);
+      *paused = !(*paused);
+      break;
+    }
+    if (*paused) world_draw(world, *camera);
+    if (!*running) break;
+  } while(*paused);
 }
 
 int main(void) {
@@ -98,60 +129,30 @@ int main(void) {
   Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
   
   world_back[WORLD_SIZE/2] = (Cell){0.0, 1.0};
+  world_back[WORLD_SIZE/2+1] = (Cell){0.0, -1.0};
+  world_back[WORLD_SIZE/2-1] = (Cell){0.0, -1.0};
   memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
 
-  int32_t offset = WORLD_SIZE/2;
-  float scope = 1.0;
-
+  Camera camera = (Camera){WORLD_SIZE/2, 1.0};
+  
   bool running = true;
-  bool events_present = true;
+  bool paused  = false;
 
   initscr();
   noecho();
+  nodelay(stdscr, true);
+  keypad(stdscr, true);
 
-  offset -= COLS/2;
+  camera.x -= COLS/2;
 
   while (running) {
+    events(&paused, &running, &camera, world_front);
     world_simulate(world_back, world_front, 0.01);
-    erase();
-    world_draw(world_front, offset, scope);
-    refresh();
-    world_write(world_front);
+    world_draw(world_front, camera);
     
     Cell* t = world_back;
     world_back = world_front;
     world_front = t;
-
-    while (events_present) {
-      int ch = getch();
-
-      switch (ch) {
-      case 'h':
-	offset -= 1;
-	break;
-      case 'l':
-	offset += 1;
-	break;
-      case 'j':
-	scope *= 0.8;
-	break;
-      case 'k':
-	scope *= 1.2;
-	break;
-      case 'q':
-	running = false;
-	break;
-      default:
-	events_present = false;
-	break;
-      }
-      if (!running) break;
-      
-      erase();
-      world_draw(world_front, offset, scope);
-      refresh();
-    }
-    events_present = true;
   }
 
   endwin();
