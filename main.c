@@ -71,8 +71,8 @@ double lerp(double a, double b, double f) {
   return a + f * (b - a);
 }
 
-int gradient(Cell cell) {
-  double v = fabs(cell.velocity);
+int gradient(double velocity) {
+  double v = fabs(velocity);
   if (v > 0.5) {
     return '@';
   } else if (v > 0.4) {
@@ -88,7 +88,7 @@ int gradient(Cell cell) {
   return ' ';
 }
 
-void world_draw(const Cell* world, Camera camera) {
+void world_draw(const Cell* world, Camera camera, bool should_lerp) {
   double from_x = -camera.range_x + camera.x;
   double to_x =    camera.range_x + camera.x;
   double from_y = -camera.range_y + camera.y;
@@ -97,7 +97,25 @@ void world_draw(const Cell* world, Camera camera) {
   for (size_t x = 0; x < (size_t)COLS; x++) {
     for (size_t y = 0; y < (size_t)LINES; y++) {
       double threshold = lerp(from_y, to_y, (double)y/(double)LINES);
-      int32_t at = lerp(from_x, to_x, (double)x/(double)COLS);
+      double world_x = lerp(from_x, to_x, (double)x/(double)COLS);
+
+      int32_t at = floor(world_x);
+      double t = world_x - (double)at;
+
+      double height;
+      double velocity;
+
+      if (should_lerp) {
+	Cell c0 = cell_get(world, at);
+	Cell c1 = cell_get(world, at + 1);
+	height = lerp(c0.position, c1.position, t);
+	velocity = lerp(c0.velocity, c1.velocity, t);
+      } else {
+	Cell c = cell_get(world, at);
+	height = c.position;
+	velocity = c.velocity;
+      }
+      
       if (at > WORLD_SIZE-1) {
 	if (at - 1 <= WORLD_SIZE-1)
 	  mvaddch(y, x, '|');
@@ -109,11 +127,11 @@ void world_draw(const Cell* world, Camera camera) {
 	continue;
       }
 
-      if (world[at].position >= threshold && threshold > 0.0)
-	mvaddch(y, x, gradient(world[at]) | A_REVERSE);
+      if (height >= threshold && threshold > 0.0)
+	mvaddch(y, x, gradient(velocity) | A_REVERSE);
 
-      if (world[at].position <= threshold && threshold < 0.0)
-	mvaddch(y, x, gradient(world[at]) | A_REVERSE);
+      if (height <= threshold && threshold < 0.0)
+	mvaddch(y, x, gradient(velocity) | A_REVERSE);
 
     }
   }
@@ -131,9 +149,9 @@ void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_s
   mvprintw(3, 0, "simulation speed: %.2fx", sim_speed);
 }
 
-void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt, double sim_speed) {
+void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt, double sim_speed, bool should_lerp) {
   erase();
-  world_draw(cells, *camera);
+  world_draw(cells, *camera, should_lerp);
   ui_draw(*camera, fast_mode, paused, dt, sim_speed);
   refresh();
 }
@@ -149,6 +167,7 @@ void events(
   bool* paused,
   bool* running,
   bool* fast_mode,
+  bool* should_lerp,
   Camera* camera,
   Cell** world_back,
   Cell** world_front,
@@ -190,18 +209,19 @@ void events(
   case '=':
     *sim_speed = 1.0;
     break;
-      
+
+  case 'a':
+    *should_lerp = !*should_lerp;
+    break;
   case 'n':
     camera->range_x = COLS/2.0;
     camera->x = WORLD_SIZE/2.0;
     camera->range_y = 1;
     camera->y = 0;
     break;
-
   case 's':
     step_simulation(world_back, world_front, 0.5 * *sim_speed);
     break;
-      
   case 'x':
     *fast_mode = !*fast_mode;
     break;
@@ -225,6 +245,7 @@ int main(void) {
   bool running = true;
   bool paused  = true;
   bool fast_mode = false;
+  bool should_lerp = true;
 
   struct timespec start = {0};
   struct timespec end = {0};
@@ -238,18 +259,18 @@ int main(void) {
   
   Camera camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
 
-  world_draw(world_front, camera);
+  world_draw(world_front, camera, should_lerp);
   clock_gettime(CLOCK_MONOTONIC, &start);
   while (running) {
     clock_gettime(CLOCK_MONOTONIC, &end);
     dt = dt_from_timestamps(start, end);
     start = end;
-    events(&paused, &running, &fast_mode, &camera, &world_front, &world_back, &simulation_speed);
+    events(&paused, &running, &fast_mode, &should_lerp, &camera, &world_front, &world_back, &simulation_speed);
 
     if (!paused) {
       step_simulation(&world_back, &world_front, dt * simulation_speed);
     }
-    redraw(world_front, &camera, fast_mode, paused, dt, simulation_speed);
+    redraw(world_front, &camera, fast_mode, paused, dt, simulation_speed, should_lerp);
   }
 
   endwin();
