@@ -13,7 +13,8 @@ typedef struct {
 } Cell;
 
 Cell cell_get(const Cell* cells, int32_t i) {
-  if (i < 0 || i > WORLD_SIZE - 1) return (Cell){0};
+  if (i < 0) return (Cell){0, 0};
+  if (i > WORLD_SIZE - 1) return (Cell){0, 0};
   return cells[i];
 }
 
@@ -101,7 +102,7 @@ void world_draw(const Cell* world, Camera camera) {
   }
 }
 
-void ui_draw(Camera camera, bool fast_mode, bool paused, double dt) {
+void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_speed) {
   mvprintw(LINES/2, 0, "%.2f", -camera.range_x + camera.x); // from x
   mvprintw(LINES/2, COLS-6, "%.2f", camera.range_x + camera.x); // to x
   mvprintw(LINES-1, COLS/2, "%.2f", -camera.range_y + camera.y); // from y 
@@ -110,12 +111,13 @@ void ui_draw(Camera camera, bool fast_mode, bool paused, double dt) {
   mvprintw(0, 0, "%s", fast_mode ? "" : "(fast mode active)");
   mvprintw(1, 0, "%s", paused ? "" : "(running the simulation)");
   mvprintw(2, 0, "dt: %f", dt);
+  mvprintw(3, 0, "simulation speed: %.2fx", sim_speed);
 }
 
-void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt) {
+void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt, double sim_speed) {
   erase();
   world_draw(cells, *camera);
-  ui_draw(*camera, fast_mode, paused, dt);
+  ui_draw(*camera, fast_mode, paused, dt, sim_speed);
   refresh();
 }
 
@@ -199,7 +201,7 @@ int main(void) {
   Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
 
   world_back[WORLD_SIZE/2 + 1] = cell_make(1);
-  world_back[WORLD_SIZE/2 - 1] = cell_make(-1);
+  world_back[WORLD_SIZE/2 - 1] = cell_make(1);
   memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
 
   bool running = true;
@@ -229,7 +231,7 @@ int main(void) {
     if (!paused) {
       step_simulation(&world_back, &world_front, dt * simulation_speed);
     }
-    redraw(world_front, &camera, fast_mode, paused, dt);
+    redraw(world_front, &camera, fast_mode, paused, dt, simulation_speed);
   }
 
   endwin();
