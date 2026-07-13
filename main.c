@@ -8,8 +8,8 @@
 #define WORLD_SIZE 512
 
 typedef struct {
-  float velocity;
-  float position;
+  double velocity;
+  double position;
 } Cell;
 
 Cell cell_get(const Cell* cells, int32_t i) {
@@ -22,137 +22,214 @@ void cell_set(Cell cell, Cell* cells, int32_t i) {
   cells[i] = cell;
 }
 
-float dif2_num(float nx, float x, float px, float dx) {
+inline Cell cell_make(double position) { return (Cell){0, position}; }
+
+double dif2_num(double nx, double x, double px, double dx) {
   return (nx - 2.0*x + px) / (dx * dx);
 }
 
-float dif2_cell(Cell nc, Cell c, Cell pc) {
+double dif2_cell(Cell nc, Cell c, Cell pc) {
   return dif2_num(nc.position, c.position, pc.position, 1.0);
 }
 
-float dif2(const Cell* cells, int32_t x) {
+double dif2(const Cell* cells, int32_t x) {
   return dif2_num(cell_get(cells, x-1).position,
 		  cell_get(cells, x).position,
 		  cell_get(cells, x+1).position, 1);
 }
 
-void world_simulate(const Cell* world, Cell* output, float dt) {
+void world_simulate(const Cell* world, Cell* output, double dt) {
   for (size_t i = 0; i < WORLD_SIZE; ++i) {
     Cell l = cell_get(world, (int32_t)i - 1);
     Cell r  = cell_get(world, (int32_t)i + 1);
     Cell c = cell_get(world, (int32_t)i);
 
-    float a = dif2_cell(l, c, r);
+    double a = dif2_cell(l, c, r);
     output[i] = c;
     output[i].velocity += a * dt;
     output[i].position += output[i].velocity * dt;
   }
 }
 
-//#define DRAW_VELOCITY
+void step_simulation(Cell** back, Cell** front, double dt) {
+  world_simulate(*back, *front, dt);
+
+  Cell* t = *back;
+  *back = *front;
+  *front = t;
+}
 
 typedef struct {
-  int32_t x;
-  float y;
+  double x;
+  double y;
+  double range_x; // same
+  double range_y; // means from -y to y
 } Camera;
 
+double lerp(double a, double b, double f) {
+  return a + f * (b - a);
+}
+
 void world_draw(const Cell* world, Camera camera) {
-  erase();
-  for (size_t x = 0; x < (size_t)(COLS < WORLD_SIZE - 1 ? WORLD_SIZE - 1 : COLS); x++) {
+  double from_x = -camera.range_x + camera.x;
+  double to_x =    camera.range_x + camera.x;
+  double from_y = -camera.range_y + camera.y;
+  double to_y =    camera.range_y + camera.y;
+  
+  for (size_t x = 0; x < (size_t)COLS; x++) {
     for (size_t y = 0; y < (size_t)LINES; y++) {
+      double threshold = lerp(from_y, to_y, (double)y/(double)LINES);
+      int32_t at = lerp(from_x, to_x, (double)x/(double)COLS);
+      if (at > WORLD_SIZE-1) {
+	if (at - 1 <= WORLD_SIZE-1)
+	  mvaddch(y, x, '|');
+	continue;
+      }
+      if (at < 0) {
+	if (at + 1 >= 0)
+	  mvaddch(y, x, '|');
+	continue;
+      }
 
-      if (x + camera.x > WORLD_SIZE) continue;
-      float threshold = -((float)y / (float)LINES * 2.0 - 1.0);
-      threshold *= camera.y;
+      if (world[at].position >= threshold && threshold > 0.0)
+	mvaddch(y, x, ' ' | A_REVERSE);
 
-      if (world[x + camera.x].position >= threshold && threshold > 0)
-	mvaddch(y, x, '#');
+      if (world[at].position <= threshold && threshold < 0.0)
+	mvaddch(y, x, ' ' | A_REVERSE);
 
-      if (world[x + camera.x].position <= threshold && threshold < 0)
-	mvaddch(y, x, '#');
-#ifdef DRAW_VELOCITY
-      if (world[x + camera.x].velocity >= threshold && threshold > 0)
-	mvaddch(y, x, '@');
-
-      if (world[x + camera.x].velocity <= threshold && threshold < 0)
-	mvaddch(y, x, '@');
-#endif
-      if (world[x + camera.x].position >= camera.y)
-	mvaddch(0, x, '+');
-
-      if (world[x + camera.x].position <= -camera.y)
-	mvaddch(COLS-1, x, '+');
-      
-      if (y == (size_t)LINES/2)
-	mvaddch(y, x, '$');
     }
   }
+}
+
+void ui_draw(Camera camera, bool fast_mode, bool paused, double dt) {
+  mvprintw(LINES/2, 0, "%.2f", -camera.range_x + camera.x); // from x
+  mvprintw(LINES/2, COLS-6, "%.2f", camera.range_x + camera.x); // to x
+  mvprintw(LINES-1, COLS/2, "%.2f", -camera.range_y + camera.y); // from y 
+  mvprintw(0, COLS/2, "%.2f", camera.range_y + camera.y); // to y
+
+  mvprintw(0, 0, "%s", fast_mode ? "" : "(fast mode active)");
+  mvprintw(1, 0, "%s", paused ? "" : "(running the simulation)");
+  mvprintw(2, 0, "dt: %f", dt);
+}
+
+void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt) {
+  erase();
+  world_draw(cells, *camera);
+  ui_draw(*camera, fast_mode, paused, dt);
   refresh();
 }
 
-void events(bool* paused, bool* running, Camera* camera, const Cell* world) {
-  do {
-    switch (getch()) {
-    case 'h':
-      camera->x -= 1;
-      break;
-    case 'l':
-      camera->x += 1;
-      break;
-    case KEY_LEFT:
-      camera->x -= 10;
-      break;
-    case KEY_RIGHT:
-      camera->x += 10;
-      break;
-    case 'j':
-      camera->y *= 0.8;
-      break;
-    case 'k':
-      camera->y *= 1.2;
-      break;
-    case 'q':
-      *running = false;
-      break;
-    case ' ':
-      nodelay(stdscr, *paused);
-      *paused = !(*paused);
-      break;
-    }
-    if (*paused) world_draw(world, *camera);
-    if (!*running) break;
-  } while(*paused);
+double dt_from_timestamps(struct timespec start, struct timespec end) {
+  return (double)(end.tv_sec - start.tv_sec) +
+    (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
+}
+
+#define FAST_MODE_SPEED 2.0
+#define SPEED 0.25
+void events(
+  bool* paused,
+  bool* running,
+  bool* fast_mode,
+  Camera* camera,
+  Cell** world_back,
+  Cell** world_front,
+  double* sim_speed
+) {
+  switch (getch()) {
+  case 'h':
+    camera->range_x *= 0.8;
+    break;
+  case 'l':
+    camera->range_x *= 1.2;
+    break;
+  case 'j':
+    camera->range_y *= 0.8;
+    break;
+  case 'k':
+    camera->range_y *= 1.2;
+    break;
+
+  case KEY_LEFT:
+    camera->x -= (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_x;
+    break;
+  case KEY_RIGHT:
+    camera->x += (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_x;
+    break;
+  case KEY_UP:
+    camera->y -= (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_y;
+    break;
+  case KEY_DOWN:
+    camera->y += (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_y;
+    break;
+
+  case '+':
+    *sim_speed *= 1.2;
+    break;
+  case '-':
+    *sim_speed *= 0.8;
+    break;
+  case '=':
+    *sim_speed = 1.0;
+      
+  case 'n':
+    camera->range_x = COLS/2.0;
+    camera->x = WORLD_SIZE/2.0;
+    camera->range_y = 1;
+    camera->y = 0;
+    break;
+
+  case 's':
+    step_simulation(world_back, world_front, 0.5 * *sim_speed);
+    break;
+      
+  case 'x':
+    *fast_mode = !*fast_mode;
+    break;
+  case 'q':
+    *running = false;
+    break;
+  case ' ':
+    *paused = !*paused;
+    break;
+  }
 }
 
 int main(void) {
   Cell* world_front = malloc(sizeof(Cell) * WORLD_SIZE);
   Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
-  
-  world_back[WORLD_SIZE/2] = (Cell){0.0, 1.0};
-  world_back[WORLD_SIZE/2+1] = (Cell){0.0, -1.0};
-  world_back[WORLD_SIZE/2-1] = (Cell){0.0, -1.0};
+
+  world_back[WORLD_SIZE/2 + 1] = cell_make(1);
+  world_back[WORLD_SIZE/2 - 1] = cell_make(-1);
   memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
 
-  Camera camera = (Camera){WORLD_SIZE/2, 1.0};
-  
   bool running = true;
-  bool paused  = false;
+  bool paused  = true;
+  bool fast_mode = false;
+
+  struct timespec start = {0};
+  struct timespec end = {0};
+  double dt = 0.001;
+  double simulation_speed = 1.0;
 
   initscr();
   noecho();
   nodelay(stdscr, true);
   keypad(stdscr, true);
+  
+  Camera camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
 
-  camera.x -= COLS/2;
-
+  world_draw(world_front, camera);
+  clock_gettime(CLOCK_MONOTONIC, &start);
   while (running) {
-    events(&paused, &running, &camera, world_front);
-    world_simulate(world_back, world_front, 0.01);
-    world_draw(world_front, camera);
-    
-    Cell* t = world_back;
-    world_back = world_front;
-    world_front = t;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    dt = dt_from_timestamps(start, end);
+    start = end;
+    events(&paused, &running, &fast_mode, &camera, &world_front, &world_back, &simulation_speed);
+
+    if (!paused) {
+      step_simulation(&world_back, &world_front, dt * simulation_speed);
+    }
+    redraw(world_front, &camera, fast_mode, paused, dt);
   }
 
   endwin();
