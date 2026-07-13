@@ -71,6 +71,23 @@ double lerp(double a, double b, double f) {
   return a + f * (b - a);
 }
 
+int gradient(Cell cell) {
+  double v = fabs(cell.velocity);
+  if (v > 0.5) {
+    return '@';
+  } else if (v > 0.4) {
+    return '#';
+  } else if (v > 0.3) {
+    return '=';
+  } else if (v > 0.2) {
+    return '-';
+  } else if (v > 0.1) {
+    return '.';
+  }
+
+  return ' ';
+}
+
 void world_draw(const Cell* world, Camera camera) {
   double from_x = -camera.range_x + camera.x;
   double to_x =    camera.range_x + camera.x;
@@ -93,10 +110,10 @@ void world_draw(const Cell* world, Camera camera) {
       }
 
       if (world[at].position >= threshold && threshold > 0.0)
-	mvaddch(y, x, ' ' | A_REVERSE);
+	mvaddch(y, x, gradient(world[at]) | A_REVERSE);
 
       if (world[at].position <= threshold && threshold < 0.0)
-	mvaddch(y, x, ' ' | A_REVERSE);
+	mvaddch(y, x, gradient(world[at]) | A_REVERSE);
 
     }
   }
