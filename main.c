@@ -67,8 +67,13 @@ typedef struct {
   double range_y; // means from -y to y
 } Camera;
 
-double lerp(double a, double b, double f) {
-  return a + f * (b - a);
+// haha funny numbers go brr
+double smootherstep(double a, double b, double x) {
+  return a + (b - a) * (x * x * x * (x * (6.0 * x - 15.0) + 10.0));
+}
+
+double lerp(double a, double b, double x) {
+  return a + (b - a) * x;
 }
 
 int gradient(double velocity) {
@@ -108,8 +113,8 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
       if (should_lerp) {
 	Cell c0 = cell_get(world, at);
 	Cell c1 = cell_get(world, at + 1);
-	height = lerp(c0.position, c1.position, t);
-	velocity = lerp(c0.velocity, c1.velocity, t);
+	height = smootherstep(c0.position, c1.position, t);
+	velocity = smootherstep(c0.velocity, c1.velocity, t);
       } else {
 	Cell c = cell_get(world, at);
 	height = c.position;
