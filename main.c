@@ -172,6 +172,7 @@ void events(
     break;
   case '=':
     *sim_speed = 1.0;
+    break;
       
   case 'n':
     camera->range_x = COLS/2.0;
