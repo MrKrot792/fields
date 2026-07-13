@@ -145,7 +145,7 @@ void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_s
 
   mvprintw(0, 0, "%s", fast_mode ? "" : "(fast mode active)");
   mvprintw(1, 0, "%s", paused ? "" : "(running the simulation)");
-  mvprintw(2, 0, "dt: %f", dt);
+  mvprintw(2, 0, "dt: %f (%.2f FPS)", dt, 1.0/dt);
   mvprintw(3, 0, "simulation speed: %.2fx", sim_speed);
 }
 
