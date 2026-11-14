@@ -247,14 +247,9 @@ int main(void) {
   Cell* world_front = malloc(sizeof(Cell) * WORLD_SIZE);
   Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
 
+  // Nulling the whole thing out.
   for (size_t i = 0; i < WORLD_SIZE; i++) {
     world_back[i] = cell_make(0);
-
-    //if (i > WORLD_SIZE/2 + 16) 
-    //  world_back[i] = cell_make_mass(0, 2);
-    
-    //if (i < WORLD_SIZE/2 - 16)
-    //  world_back[i] = cell_make_mass(0, 0.1);
   }
 
   world_back[WORLD_SIZE/2 + 1] = cell_make(1);
