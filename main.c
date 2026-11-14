@@ -10,11 +10,12 @@
 typedef struct {
   double velocity;
   double position;
+  double mass;
 } Cell;
 
 Cell cell_get(const Cell* cells, int32_t i) {
-  if (i < 0) return (Cell){0, 0};
-  if (i > WORLD_SIZE - 1) return (Cell){0, 0};
+  if (i < 0) return (Cell){0, 0, 1};
+  if (i > WORLD_SIZE - 1) return (Cell){0, 0, 1};
   return cells[i];
 }
 
@@ -23,7 +24,8 @@ void cell_set(Cell cell, Cell* cells, int32_t i) {
   cells[i] = cell;
 }
 
-inline Cell cell_make(double position) { return (Cell){0, position}; }
+inline Cell cell_make(double position) { return (Cell){0, position, 1}; }
+inline Cell cell_make_mass(double position, double mass) { return (Cell){0, position, mass}; }
 
 double dif2_num(double nx, double x, double px, double dx) {
   return (nx - 2.0*x + px) / (dx * dx);
@@ -42,10 +44,10 @@ double dif2(const Cell* cells, int32_t x) {
 void world_simulate(const Cell* world, Cell* output, double dt) {
   for (size_t i = 0; i < WORLD_SIZE; ++i) {
     Cell l = cell_get(world, (int32_t)i - 1);
-    Cell r  = cell_get(world, (int32_t)i + 1);
+    Cell r = cell_get(world, (int32_t)i + 1);
     Cell c = cell_get(world, (int32_t)i);
 
-    double a = dif2_cell(l, c, r);
+    double a = dif2_cell(l, c, r) * pow(1.0 / c.mass, 2);
     output[i] = c;
     output[i].velocity += a * dt;
     output[i].position += output[i].velocity * dt;
@@ -68,8 +70,8 @@ typedef struct {
 } Camera;
 
 // haha funny numbers go brr
-double smootherstep(double a, double b, double x) {
-  return a + (b - a) * (x * x * x * (x * (6.0 * x - 15.0) + 10.0));
+double smootherstep(double a, double b, double x) { 
+ return a + (b - a) * (x * x * x * (x * (6.0 * x - 15.0) + 10.0));
 }
 
 double lerp(double a, double b, double x) {
@@ -225,7 +227,7 @@ void events(
     camera->y = 0;
     break;
   case 's':
-    step_simulation(world_back, world_front, 0.5 * *sim_speed);
+    step_simulation(world_back, world_front, 0.5 * (*sim_speed));
     break;
   case 'x':
     *fast_mode = !*fast_mode;
@@ -243,8 +245,21 @@ int main(void) {
   Cell* world_front = malloc(sizeof(Cell) * WORLD_SIZE);
   Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
 
-  world_back[WORLD_SIZE/2 + 1] = cell_make(1);
-  world_back[WORLD_SIZE/2 - 1] = cell_make(1);
+  for (size_t i = 0; i < WORLD_SIZE; i++) {
+    world_back[i] = cell_make(0);
+
+    //if (i > WORLD_SIZE/2 + 16) 
+    //  world_back[i] = cell_make_mass(0, 2);
+    
+    //if (i < WORLD_SIZE/2 - 16)
+    //  world_back[i] = cell_make_mass(0, 0.1);
+
+    int32_t x = i - WORLD_SIZE/2;
+
+    //if (i < -WORLD_SIZE/16)
+      world_back[i] = cell_make(cos((float)x * M_PI));
+  }
+  
   memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
 
   bool running = true;
