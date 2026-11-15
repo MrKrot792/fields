@@ -78,7 +78,7 @@ double lerp(double a, double b, double x) {
   return a + (b - a) * x;
 }
 
-int gradient(double velocity) {
+int velocity_gradient(double velocity) {
   double v = fabs(velocity);
   if (v > 0.5) {
     return '@';
@@ -107,22 +107,8 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
       double world_x = lerp(from_x, to_x, (double)x/(double)COLS);
 
       int32_t at = floor(world_x);
-      double t = world_x - (double)at;
 
-      double height;
-      double velocity;
-
-      if (should_lerp) {
-	Cell c0 = cell_get(world, at);
-	Cell c1 = cell_get(world, at + 1);
-	height = smootherstep(c0.position, c1.position, t);
-	velocity = smootherstep(c0.velocity, c1.velocity, t);
-      } else {
-	Cell c = cell_get(world, at);
-	height = c.position;
-	velocity = c.velocity;
-      }
-      
+      // TODO: There aren't always enough pixels to draw the border
       if (at > WORLD_SIZE-1) {
 	if (at - 1 <= WORLD_SIZE-1)
 	  mvaddch(y, x, '|');
@@ -133,18 +119,34 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
 	  mvaddch(y, x, '|');
 	continue;
       }
+      
+      double height;
+      double velocity;
 
+      if (should_lerp) {
+	double t = world_x - (double)at;
+      	Cell c0 = cell_get(world, at);
+	Cell c1 = cell_get(world, at + 1);
+	height = smootherstep(c0.position, c1.position, t);
+	velocity = smootherstep(c0.velocity, c1.velocity, t);
+      } else {
+	Cell c = cell_get(world, at);
+	height = c.position;
+	velocity = c.velocity;
+      }
+      
       if (height >= threshold && threshold > 0.0)
-	mvaddch(y, x, gradient(velocity) | A_REVERSE);
+	mvaddch(y, x, velocity_gradient(velocity) | A_REVERSE);
 
       if (height <= threshold && threshold < 0.0)
-	mvaddch(y, x, gradient(velocity) | A_REVERSE);
+	mvaddch(y, x, velocity_gradient(velocity) | A_REVERSE);
 
     }
   }
 }
 
 void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_speed) {
+  // TODO: "to x" overflows at large values
   mvprintw(LINES/2, 0, "%.2f", -camera.range_x + camera.x); // from x
   mvprintw(LINES/2, COLS-6, "%.2f", camera.range_x + camera.x); // to x
   mvprintw(LINES-1, COLS/2, "%.2f", -camera.range_y + camera.y); // from y 
@@ -257,7 +259,7 @@ int main(void) {
     int32_t x = i - WORLD_SIZE/2;
 
     //if (i < -WORLD_SIZE/16)
-      world_back[i] = cell_make(cos((float)x * M_PI));
+    world_back[i] = cell_make(sin((double)(i * i)));
   }
   
   memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
@@ -279,7 +281,6 @@ int main(void) {
   
   Camera camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
 
-  world_draw(world_front, camera, should_lerp);
   clock_gettime(CLOCK_MONOTONIC, &start);
   while (running) {
     clock_gettime(CLOCK_MONOTONIC, &end);
