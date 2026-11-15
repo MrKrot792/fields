@@ -6,6 +6,8 @@
 #include <ncurses.h>
 
 #define WORLD_SIZE 512
+#define FAST_MODE_SPEED 2.0
+#define SPEED 0.25
 
 typedef struct {
   double velocity;
@@ -170,8 +172,6 @@ double dt_from_timestamps(struct timespec start, struct timespec end) {
     (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
 }
 
-#define FAST_MODE_SPEED 2.0
-#define SPEED 0.25
 void events(
   bool* paused,
   bool* running,
