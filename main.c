@@ -1,9 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <dlfcn.h>
 #include <math.h>
 #include <ncurses.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define WORLD_SIZE 512
 #define FAST_MODE_SPEED 2.0
@@ -26,8 +27,8 @@ void cell_set(Cell cell, Cell* cells, int32_t i) {
   cells[i] = cell;
 }
 
-inline Cell cell_make(double position) { return (Cell){0, position, 1}; }
-inline Cell cell_make_mass(double position, double mass) { return (Cell){0, position, mass}; }
+static inline Cell cell_make(double position) { return (Cell){0, position, 1}; }
+//static inline Cell cell_make_mass(double position, double mass) { return (Cell){0, position, mass}; }
 
 double dif2_num(double nx, double x, double px, double dx) {
   return (nx - 2.0*x + px) / (dx * dx);
