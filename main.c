@@ -1,3 +1,4 @@
+// TODO: Transition from ncurses to termbox2
 #include <dlfcn.h>
 #include <math.h>
 #include <ncurses.h>
@@ -9,6 +10,7 @@
 
 #include "fields.h"
 
+// TODO: remove this altogether
 #define WORLD_SIZE 256
 #define FAST_MODE_SPEED 1
 #define SPEED 0.1
@@ -38,6 +40,30 @@ double dif2(const Cell* cells, int32_t x) {
 		  cell_get(cells, x+1).position, 1);
 }
 
+typedef struct {
+  double x;
+  double y;
+  double range_x; // same
+  double range_y; // means from -y to y
+} Camera;
+
+typedef struct {
+  ext_f world_alloc;
+  ext_f world_init;
+  ext_f world_free;
+  void* lib;
+  world_t world;
+  bool running;
+  bool paused;
+  bool fast_mode;
+  bool should_lerp;
+  struct timespec start;
+  struct timespec end;
+  double dt;
+  double sim_speed;
+  Camera camera;
+} state_t;
+
 void world_simulate(const Cell* world, Cell* output, double dt) {
   for (size_t i = 0; i < WORLD_SIZE; ++i) {
     Cell l = cell_get(world, (int32_t)i - 1);
@@ -58,13 +84,6 @@ void step_simulation(Cell** back, Cell** front, double dt) {
   *back = *front;
   *front = t;
 }
-
-typedef struct {
-  double x;
-  double y;
-  double range_x; // same
-  double range_y; // means from -y to y
-} Camera;
 
 // haha funny numbers go brr
 double smootherstep(double a, double b, double x) { 
@@ -155,10 +174,10 @@ void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_s
   mvprintw(3, 0, "simulation speed: %.2fx", sim_speed);
 }
 
-void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, double dt, double sim_speed, bool should_lerp) {
+void redraw(state_t* s) {
   erase();
-  world_draw(cells, *camera, should_lerp);
-  ui_draw(*camera, fast_mode, paused, dt, sim_speed);
+  world_draw(s->world.front, s->camera, s->should_lerp);
+  ui_draw(s->camera, s->fast_mode, s->paused, s->dt, s->sim_speed);
   refresh();
 }
 
@@ -166,106 +185,80 @@ void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, doub
     ((double)((s)->end.tv_sec - (s)->start.tv_sec) \
   + (double)((s)->end.tv_nsec - (s)->start.tv_nsec) * 1e-9)
 
-void events(
-  bool* paused,
-  bool* running,
-  bool* fast_mode,
-  bool* should_lerp,
-  Camera* camera,
-  Cell** world_back,
-  Cell** world_front,
-  double* sim_speed
-) {
+void events(state_t* s) {
   switch (getch()) {
   case 'h':
-    camera->range_x *= 0.8;
+    s->camera.range_x *= 0.8;
     break;
   case 'l':
-    camera->range_x *= 1.2;
+    s->camera.range_x *= 1.2;
     break;
   case 'j':
-    camera->range_y *= 0.8;
+    s->camera.range_y *= 0.8;
     break;
   case 'k':
-    camera->range_y *= 1.2;
+    s->camera.range_y *= 1.2;
     break;
 
   case KEY_LEFT:
-    camera->x -= (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_x;
+    s->camera.x -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
     break;
   case KEY_RIGHT:
-    camera->x += (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_x;
+    s->camera.x += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
     break;
   case KEY_UP:
-    camera->y -= (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_y;
+    s->camera.y -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
     break;
   case KEY_DOWN:
-    camera->y += (!*fast_mode ? FAST_MODE_SPEED : SPEED) * camera->range_y;
+    s->camera.y += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
     break;
 
   case '+':
-    *sim_speed *= 1.2;
+    s->sim_speed *= 1.2;
     break;
   case '-':
-    *sim_speed *= 0.8;
+    s->sim_speed *= 0.8;
     break;
   case '=':
-    *sim_speed = 1.0;
+    s->sim_speed = 1.0;
     break;
 
   case 'r':
+    // TODO: Hot reloading
     break;
+    
   case 'a':
-    *should_lerp = !*should_lerp;
+    s->should_lerp = !s->should_lerp;
     break;
   case 'n':
-    camera->range_x = COLS/2.0;
-    camera->x = WORLD_SIZE/2.0;
-    camera->range_y = 1;
-    camera->y = 0;
+    s->camera.range_x = COLS/2.0;
+    s->camera.x = WORLD_SIZE/2.0;
+    s->camera.range_y = 1;
+    s->camera.y = 0;
     break;
   case 's':
-    step_simulation(world_back, world_front, 0.5 * (*sim_speed));
+    step_simulation(&s->world.back, &s->world.front, 0.5 * (s->sim_speed));
     break;
   case 'x':
-    *fast_mode = !*fast_mode;
+    s->fast_mode = !s->fast_mode;
     break;
   case 'q':
-    *running = false;
+    s->running = false;
     break;
   case ' ':
-    *paused = !*paused;
+    s->paused = !s->paused;
     break;
   }
 }
-
-typedef struct {
-  ext_f world_alloc;
-  ext_f world_init;
-  ext_f world_free;
-  void* lib;
-  world_t world;
-  bool running;
-  bool paused;
-  bool fast_mode;
-  bool should_lerp;
-  struct timespec start;
-  struct timespec end;
-  double dt;
-  double simulation_speed;
-  Camera camera;
-} state_t;
 
 int main(void) {
   state_t state = {0};
   
   state.lib = dlopen("./libfields.so", RTLD_NOW);
-
   if (state.lib == NULL) {
     fprintf(stderr, "Error: %s\n", dlerror());
     return -1;
   }
-  
   state.world_alloc = dlsym(state.lib, "world_alloc");
   state.world_init  = dlsym(state.lib, "world_init");
   state.world_free  = dlsym(state.lib, "world_free");
@@ -278,7 +271,7 @@ int main(void) {
   state.should_lerp = true;
 
   state.dt = 0.001;
-  state.simulation_speed = 1.0;
+  state.sim_speed = 1.0;
 
   initscr();
   noecho();
@@ -292,16 +285,16 @@ int main(void) {
     clock_gettime(CLOCK_MONOTONIC, &state.end);
     dt_from_timestamps(&state);
     state.start = state.end;
-    events(&paused, &running, &fast_mode, &should_lerp, &camera, &world.front, &world.back, &simulation_speed);
+    events(&state);
 
     if (!state.paused) {
-      step_simulation(&world.back, &world.front, dt * simulation_speed);
+      step_simulation(&state.world.back, &state.world.front, state.dt * state.sim_speed);
     }
     
-    redraw(world.front, &camera, fast_mode, paused, dt, simulation_speed, should_lerp);
+    redraw(&state);
   }
 
   endwin();
-  state.w_free(&state.world);
+  state.world_free(&state.world);
   dlclose(state.lib);
 }
