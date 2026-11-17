@@ -3,10 +3,10 @@ CC := clang
 CFLAGS := -g -O0 -Wall -Wextra -I.
 LFLAGS := -lm
 
-NCURSES := $(shell pkg-config --libs --cflags ncurses)
+NCURSES := $(shell pkg-config --libs --cflags ncursesw)
 
-fields: libfields.so
+fields: main.c libfields.so
 	$(CC) main.c $(CFLAGS) $(LFLAGS) $(NCURSES) -o main
 
-libfields.so:
-	$(CC) fields.c $(CFLAGS) $(LFLAGS) -Wl,--shared -Wl,--no-pie -o libfields.so
+libfields.so: fields.c
+	$(CC) fields.c $(CFLAGS) $(LFLAGS) -shared -fPIC -o libfields.so

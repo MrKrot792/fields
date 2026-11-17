@@ -5,16 +5,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
-#define WORLD_SIZE 512
-#define FAST_MODE_SPEED 2.0
-#define SPEED 0.25
+#include "fields.h"
 
-typedef struct {
-  double velocity;
-  double position;
-  double mass;
-} Cell;
+#define WORLD_SIZE 256
+#define FAST_MODE_SPEED 1
+#define SPEED 0.1
 
 Cell cell_get(const Cell* cells, int32_t i) {
   if (i < 0) return (Cell){0, 0, 1};
@@ -26,9 +23,6 @@ void cell_set(Cell cell, Cell* cells, int32_t i) {
   if (i < 0 || i > WORLD_SIZE - 1) return;
   cells[i] = cell;
 }
-
-static inline Cell cell_make(double position) { return (Cell){0, position, 1}; }
-//static inline Cell cell_make_mass(double position, double mass) { return (Cell){0, position, mass}; }
 
 double dif2_num(double nx, double x, double px, double dx) {
   return (nx - 2.0*x + px) / (dx * dx);
@@ -168,10 +162,9 @@ void redraw(const Cell* cells, Camera* camera, bool fast_mode, bool paused, doub
   refresh();
 }
 
-double dt_from_timestamps(struct timespec start, struct timespec end) {
-  return (double)(end.tv_sec - start.tv_sec) +
-    (double)(end.tv_nsec - start.tv_nsec) * 1e-9;
-}
+#define dt_from_timestamps(s) (s)->dt = \
+    ((double)((s)->end.tv_sec - (s)->start.tv_sec) \
+  + (double)((s)->end.tv_nsec - (s)->start.tv_nsec) * 1e-9)
 
 void events(
   bool* paused,
@@ -220,6 +213,8 @@ void events(
     *sim_speed = 1.0;
     break;
 
+  case 'r':
+    break;
   case 'a':
     *should_lerp = !*should_lerp;
     break;
@@ -244,51 +239,69 @@ void events(
   }
 }
 
+typedef struct {
+  ext_f world_alloc;
+  ext_f world_init;
+  ext_f world_free;
+  void* lib;
+  world_t world;
+  bool running;
+  bool paused;
+  bool fast_mode;
+  bool should_lerp;
+  struct timespec start;
+  struct timespec end;
+  double dt;
+  double simulation_speed;
+  Camera camera;
+} state_t;
+
 int main(void) {
-  Cell* world_front = malloc(sizeof(Cell) * WORLD_SIZE);
-  Cell* world_back  = malloc(sizeof(Cell) * WORLD_SIZE);
+  state_t state = {0};
+  
+  state.lib = dlopen("./libfields.so", RTLD_NOW);
 
-  // Nulling the whole thing out.
-  // TODO: calloc
-  for (size_t i = 0; i < WORLD_SIZE; i++) {
-    world_back[i] = cell_make(0);
+  if (state.lib == NULL) {
+    fprintf(stderr, "Error: %s\n", dlerror());
+    return -1;
   }
+  
+  state.world_alloc = dlsym(state.lib, "world_alloc");
+  state.world_init  = dlsym(state.lib, "world_init");
+  state.world_free  = dlsym(state.lib, "world_free");
 
-  world_back[WORLD_SIZE/2 + 1] = cell_make(1);
-  world_back[WORLD_SIZE/2 - 1] = cell_make(1);
-  memcpy(world_front, world_back, sizeof(Cell) * WORLD_SIZE);
+  state.world_alloc(&state.world);
+  state.world_init(&state.world);
+  
+  state.running = true;
+  state.paused  = true;
+  state.should_lerp = true;
 
-  bool running = true;
-  bool paused  = true;
-  bool fast_mode = false;
-  bool should_lerp = true;
-
-  struct timespec start = {0};
-  struct timespec end = {0};
-  double dt = 0.001;
-  double simulation_speed = 1.0;
+  state.dt = 0.001;
+  state.simulation_speed = 1.0;
 
   initscr();
   noecho();
   nodelay(stdscr, true);
   keypad(stdscr, true);
   
-  Camera camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
+  state.camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
 
-  clock_gettime(CLOCK_MONOTONIC, &start);
-  while (running) {
-    clock_gettime(CLOCK_MONOTONIC, &end);
-    dt = dt_from_timestamps(start, end);
-    start = end;
-    events(&paused, &running, &fast_mode, &should_lerp, &camera, &world_front, &world_back, &simulation_speed);
+  clock_gettime(CLOCK_MONOTONIC, &state.start);
+  while (state.running) {
+    clock_gettime(CLOCK_MONOTONIC, &state.end);
+    dt_from_timestamps(&state);
+    state.start = state.end;
+    events(&paused, &running, &fast_mode, &should_lerp, &camera, &world.front, &world.back, &simulation_speed);
 
-    if (!paused) {
-      step_simulation(&world_back, &world_front, dt * simulation_speed);
+    if (!state.paused) {
+      step_simulation(&world.back, &world.front, dt * simulation_speed);
     }
-    redraw(world_front, &camera, fast_mode, paused, dt, simulation_speed, should_lerp);
+    
+    redraw(world.front, &camera, fast_mode, paused, dt, simulation_speed, should_lerp);
   }
 
   endwin();
-  free(world_front);
-  free(world_back);
+  state.w_free(&state.world);
+  dlclose(state.lib);
 }
