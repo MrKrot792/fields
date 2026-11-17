@@ -270,7 +270,6 @@ int main(void) {
   state.paused  = true;
   state.should_lerp = true;
 
-  state.dt = 0.001;
   state.sim_speed = 1.0;
 
   initscr();
