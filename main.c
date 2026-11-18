@@ -185,6 +185,26 @@ void redraw(state_t* s) {
     ((double)((s)->end.tv_sec - (s)->start.tv_sec) \
   + (double)((s)->end.tv_nsec - (s)->start.tv_nsec) * 1e-9)
 
+void init_library(state_t* s) {
+  s->lib = dlopen("./libfields.so", RTLD_NOW);
+  if (s->lib == NULL) {
+    fprintf(stderr, "Error: %s\n", dlerror());
+    exit(-1);
+  }
+  s->world_alloc = dlsym(s->lib, "world_alloc");
+  s->world_init  = dlsym(s->lib, "world_init");
+  s->world_free  = dlsym(s->lib, "world_free");
+
+  s->world_alloc(&s->world);
+  s->world_init(&s->world);
+}
+
+void reload_library(state_t* s) {
+  s->world_free(&s->world);
+  dlclose(s->lib);
+  init_library(s);
+}
+
 void events(state_t* s) {
   switch (getch()) {
   case 'h':
@@ -224,7 +244,7 @@ void events(state_t* s) {
     break;
 
   case 'r':
-    // TODO: Hot reloading
+    reload_library(s);
     break;
     
   case 'a':
@@ -253,18 +273,8 @@ void events(state_t* s) {
 
 int main(void) {
   state_t state = {0};
-  
-  state.lib = dlopen("./libfields.so", RTLD_NOW);
-  if (state.lib == NULL) {
-    fprintf(stderr, "Error: %s\n", dlerror());
-    return -1;
-  }
-  state.world_alloc = dlsym(state.lib, "world_alloc");
-  state.world_init  = dlsym(state.lib, "world_init");
-  state.world_free  = dlsym(state.lib, "world_free");
 
-  state.world_alloc(&state.world);
-  state.world_init(&state.world);
+  init_library(&state);
   
   state.running = true;
   state.paused  = true;
