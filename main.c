@@ -10,19 +10,17 @@
 
 #include "fields.h"
 
-// TODO: remove this altogether
-#define WORLD_SIZE 256
 #define FAST_MODE_SPEED 1
 #define SPEED 0.1
 
-Cell cell_get(const Cell* cells, int32_t i) {
+Cell cell_get(const Cell* cells, size_t cells_size, int32_t i) {
   if (i < 0) return (Cell){0, 0, 1};
-  if (i > WORLD_SIZE - 1) return (Cell){0, 0, 1};
+  if ((size_t)i > cells_size - 1) return (Cell){0, 0, 1};
   return cells[i];
 }
 
-void cell_set(Cell cell, Cell* cells, int32_t i) {
-  if (i < 0 || i > WORLD_SIZE - 1) return;
+void cell_set(Cell cell, Cell* cells, size_t cells_size, int32_t i) {
+  if (i < 0 || (size_t)i > cells_size - 1) return;
   cells[i] = cell;
 }
 
@@ -34,10 +32,10 @@ double dif2_cell(Cell nc, Cell c, Cell pc) {
   return dif2_num(nc.position, c.position, pc.position, 1.0);
 }
 
-double dif2(const Cell* cells, int32_t x) {
-  return dif2_num(cell_get(cells, x-1).position,
-		  cell_get(cells, x).position,
-		  cell_get(cells, x+1).position, 1);
+double dif2(const Cell* cells, size_t cells_size, int32_t x) {
+  return dif2_num(cell_get(cells, cells_size, x-1).position,
+		  cell_get(cells, cells_size, x).position,
+		  cell_get(cells, cells_size, x+1).position, 1);
 }
 
 typedef struct {
@@ -64,11 +62,11 @@ typedef struct {
   Camera camera;
 } state_t;
 
-void world_simulate(const Cell* world, Cell* output, double dt) {
-  for (size_t i = 0; i < WORLD_SIZE; ++i) {
-    Cell l = cell_get(world, (int32_t)i - 1);
-    Cell r = cell_get(world, (int32_t)i + 1);
-    Cell c = cell_get(world, (int32_t)i);
+void world_simulate(const Cell* world, Cell* output, size_t world_size, double dt) {
+  for (size_t i = 0; i < world_size; ++i) {
+    Cell l = cell_get(world, world_size, (int32_t)i - 1);
+    Cell r = cell_get(world, world_size, (int32_t)i + 1);
+    Cell c = cell_get(world, world_size, (int32_t)i);
 
     double a = dif2_cell(l, c, r) * pow(1.0 / c.mass, 2);
     output[i] = c;
@@ -77,8 +75,8 @@ void world_simulate(const Cell* world, Cell* output, double dt) {
   }
 }
 
-void step_simulation(Cell** back, Cell** front, double dt) {
-  world_simulate(*back, *front, dt);
+void step_simulation(Cell** back, Cell** front, size_t world_size, double dt) {
+  world_simulate(*back, *front, world_size, dt);
 
   Cell* t = *back;
   *back = *front;
@@ -111,7 +109,7 @@ int velocity_gradient(double velocity) {
   return ' ';
 }
 
-void world_draw(const Cell* world, Camera camera, bool should_lerp) {
+void world_draw(const Cell* world, size_t world_size, Camera camera, bool should_lerp) {
   double from_x = -camera.range_x + camera.x;
   double to_x =    camera.range_x + camera.x;
   double from_y = -camera.range_y + camera.y;
@@ -124,9 +122,8 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
 
       int32_t at = floor(world_x);
 
-      // TODO: There aren't always enough pixels to draw the border
-      if (at > WORLD_SIZE-1) {
-	if (at - 1 <= WORLD_SIZE-1)
+      if (at > (int32_t)(world_size - 1)) {
+	if (at - 1 <= (int32_t)(world_size - 1))
 	  mvaddch(y, x, '|');
 	continue;
       }
@@ -136,17 +133,15 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
 	continue;
       }
       
-      double height;
-      double velocity;
-
+      double height, velocity;
       if (should_lerp) {
 	double t = world_x - (double)at;
-      	Cell c0 = cell_get(world, at);
-	Cell c1 = cell_get(world, at + 1);
+      	Cell c0 = cell_get(world, world_size, at);
+	Cell c1 = cell_get(world, world_size, at + 1);
 	height = smootherstep(c0.position, c1.position, t);
 	velocity = smootherstep(c0.velocity, c1.velocity, t);
       } else {
-	Cell c = cell_get(world, at);
+	Cell c = cell_get(world, world_size, at);
 	height = c.position;
 	velocity = c.velocity;
       }
@@ -156,28 +151,27 @@ void world_draw(const Cell* world, Camera camera, bool should_lerp) {
 
       if (height <= threshold && threshold < 0.0)
 	mvaddch(y, x, velocity_gradient(velocity) | A_REVERSE);
-
     }
   }
 }
 
-void ui_draw(Camera camera, bool fast_mode, bool paused, double dt, double sim_speed) {
+void ui_draw(state_t* s) {
   // TODO: "to x" overflows at large values
-  mvprintw(LINES/2, 0, "%.2f", -camera.range_x + camera.x); // from x
-  mvprintw(LINES/2, COLS-6, "%.2f", camera.range_x + camera.x); // to x
-  mvprintw(LINES-1, COLS/2, "%.2f", -camera.range_y + camera.y); // from y 
-  mvprintw(0, COLS/2, "%.2f", camera.range_y + camera.y); // to y
+  mvprintw(LINES/2, 0, "%.2f", -s->camera.range_x + s->camera.x); // from x
+  mvprintw(LINES/2, COLS-6, "%.2f", s->camera.range_x + s->camera.x); // to x
+  mvprintw(LINES-1, COLS/2, "%.2f", -s->camera.range_y + s->camera.y); // from y 
+  mvprintw(0, COLS/2, "%.2f", s->camera.range_y + s->camera.y); // to y
 
-  mvprintw(0, 0, "%s", fast_mode ? "" : "(fast mode active)");
-  mvprintw(1, 0, "%s", paused ? "" : "(running the simulation)");
-  mvprintw(2, 0, "dt: %f (%.2f FPS)", dt, 1.0/dt);
-  mvprintw(3, 0, "simulation speed: %.2fx", sim_speed);
+  mvprintw(0, 0, "%s", s->fast_mode ? "" : "(fast mode active)");
+  mvprintw(1, 0, "%s", s->paused ? "" : "(running the simulation)");
+  mvprintw(2, 0, "dt: %f (%.2f FPS)", s->dt, 1.0/s->dt);
+  mvprintw(3, 0, "simulation speed: %.2fx", s->sim_speed);
 }
 
 void redraw(state_t* s) {
   erase();
-  world_draw(s->world.front, s->camera, s->should_lerp);
-  ui_draw(s->camera, s->fast_mode, s->paused, s->dt, s->sim_speed);
+  world_draw(s->world.front, s->world.size, s->camera, s->should_lerp);
+  ui_draw(s);
   refresh();
 }
 
@@ -252,12 +246,12 @@ void events(state_t* s) {
     break;
   case 'n':
     s->camera.range_x = COLS/2.0;
-    s->camera.x = WORLD_SIZE/2.0;
+    s->camera.x = s->world.size/2.0;
     s->camera.range_y = 1;
     s->camera.y = 0;
     break;
   case 's':
-    step_simulation(&s->world.back, &s->world.front, 0.5 * (s->sim_speed));
+    step_simulation(&s->world.back, &s->world.front, s->world.size, 0.5 * (s->sim_speed));
     break;
   case 'x':
     s->fast_mode = !s->fast_mode;
@@ -287,7 +281,7 @@ int main(void) {
   nodelay(stdscr, true);
   keypad(stdscr, true);
   
-  state.camera = (Camera){WORLD_SIZE/2.0, 0.0, COLS/2.0, 1.0};
+  state.camera = (Camera){state.world.size/2.0, 0.0, COLS/2.0, 1.0};
 
   clock_gettime(CLOCK_MONOTONIC, &state.start);
   while (state.running) {
@@ -297,7 +291,7 @@ int main(void) {
     events(&state);
 
     if (!state.paused) {
-      step_simulation(&state.world.back, &state.world.front, state.dt * state.sim_speed);
+      step_simulation(&state.world.back, &state.world.front, state.world.size, state.dt * state.sim_speed);
     }
     
     redraw(&state);
