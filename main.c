@@ -55,6 +55,7 @@ typedef struct {
   bool paused;
   bool fast_mode;
   bool should_lerp;
+  bool clean_mode;
   struct timespec start;
   struct timespec end;
   double dt;
@@ -157,6 +158,9 @@ void world_draw(const Cell* world, size_t world_size, Camera camera, bool should
 
 void ui_draw(state_t* s) {
   // TODO: "to x" overflows at large values
+  if (s->clean_mode) {
+    return;
+  }
   mvprintw(LINES/2, 0, "%.2f", -s->camera.range_x + s->camera.x); // from x
   mvprintw(LINES/2, COLS-6, "%.2f", s->camera.range_x + s->camera.x); // to x
   mvprintw(LINES-1, COLS/2, "%.2f", -s->camera.range_y + s->camera.y); // from y 
@@ -227,6 +231,9 @@ void events(state_t* s) {
     s->camera.y += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
     break;
 
+  case 'c':
+    s->clean_mode = !s->clean_mode;
+    break;
   case '+':
     s->sim_speed *= 1.2;
     break;
@@ -280,6 +287,7 @@ int main(void) {
   noecho();
   nodelay(stdscr, true);
   keypad(stdscr, true);
+  curs_set(0);
   
   state.camera = (Camera){state.world.size/2.0, 0.0, COLS/2.0, 1.0};
 
