@@ -6,7 +6,7 @@ LFLAGS := -lm
 NCURSES := $(shell pkg-config --libs --cflags ncursesw)
 
 fields: main.c libfields.so
-	$(CC) main.c $(CFLAGS) $(LFLAGS) $(NCURSES) -o main
+	$(CC) main.c $(CFLAGS) $(LFLAGS) $(NCURSES) -o fields
 
 libfields.so: fields.c
 	$(CC) fields.c $(CFLAGS) $(LFLAGS) -shared -fPIC -o libfields.so
