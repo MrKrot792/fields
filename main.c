@@ -280,8 +280,8 @@ int main(void) {
   state.running = true;
   state.paused  = true;
   state.should_lerp = true;
-
   state.sim_speed = 1.0;
+  state.fast_mode = true;
 
   initscr();
   noecho();
