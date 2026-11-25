@@ -19,11 +19,6 @@ Cell cell_get(const Cell* cells, size_t cells_size, int32_t i) {
   return cells[i];
 }
 
-void cell_set(Cell cell, Cell* cells, size_t cells_size, int32_t i) {
-  if (i < 0 || (size_t)i > cells_size - 1) return;
-  cells[i] = cell;
-}
-
 double dif2_num(double nx, double x, double px, double dx) {
   return (nx - 2.0*x + px) / (dx * dx);
 }
