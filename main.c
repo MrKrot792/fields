@@ -1,7 +1,8 @@
-// TODO: Transition from ncurses to termbox2
+#define TB_IMPL
+#include "termbox2.h"
+
 #include <dlfcn.h>
 #include <math.h>
-#include <ncurses.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -105,27 +106,31 @@ int velocity_gradient(double velocity) {
   return ' ';
 }
 
+// TODO: This should take state_t
 void world_draw(const Cell* world, size_t world_size, Camera camera, bool should_lerp) {
   double from_x = -camera.range_x + camera.x;
   double to_x =    camera.range_x + camera.x;
   double from_y = -camera.range_y + camera.y;
   double to_y =    camera.range_y + camera.y;
-  
-  for (size_t x = 0; x < (size_t)COLS; x++) {
-    for (size_t y = 0; y < (size_t)LINES; y++) {
-      double threshold = lerp(from_y, to_y, (double)y/(double)LINES);
-      double world_x = lerp(from_x, to_x, (double)x/(double)COLS);
+
+  int screen_width  = tb_width();
+  int screen_height = tb_height();
+
+  for (size_t x = 0; x < (size_t)screen_width; x++) {
+    for (size_t y = 0; y < (size_t)screen_height; y++) {
+      double threshold = lerp(from_y, to_y, (double)y/(double)screen_height);
+      double world_x = lerp(from_x, to_x, (double)x/(double)screen_width);
 
       int32_t at = floor(world_x);
 
       if (at > (int32_t)(world_size - 1)) {
 	if (at - 1 <= (int32_t)(world_size - 1))
-	  mvaddch(y, x, '|');
+	  tb_set_cell(x, y, '|', 0, 0);
 	continue;
       }
       if (at < 0) {
 	if (at + 1 >= 0)
-	  mvaddch(y, x, '|');
+	  tb_set_cell(x, y, '|', 0, 0);
 	continue;
       }
       
@@ -143,10 +148,10 @@ void world_draw(const Cell* world, size_t world_size, Camera camera, bool should
       }
       
       if (height >= threshold && threshold > 0.0)
-	mvaddch(y, x, velocity_gradient(velocity) | A_REVERSE);
+	tb_set_cell(x, y, velocity_gradient(velocity), TB_REVERSE, 0);
 
       if (height <= threshold && threshold < 0.0)
-	mvaddch(y, x, velocity_gradient(velocity) | A_REVERSE);
+	tb_set_cell(x, y, velocity_gradient(velocity), TB_REVERSE, 0);
     }
   }
 }
@@ -156,22 +161,26 @@ void ui_draw(state_t* s) {
   if (s->clean_mode) {
     return;
   }
-  mvprintw(LINES/2, 0, "%.2f", -s->camera.range_x + s->camera.x); // from x
-  mvprintw(LINES/2, COLS-6, "%.2f", s->camera.range_x + s->camera.x); // to x
-  mvprintw(LINES-1, COLS/2, "%.2f", -s->camera.range_y + s->camera.y); // from y 
-  mvprintw(0, COLS/2, "%.2f", s->camera.range_y + s->camera.y); // to y
 
-  mvprintw(0, 0, "%s", s->fast_mode ? "" : "(fast mode active)");
-  mvprintw(1, 0, "%s", s->paused ? "" : "(running the simulation)");
-  mvprintw(2, 0, "dt: %f (%.2f FPS)", s->dt, 1.0/s->dt);
-  mvprintw(3, 0, "simulation speed: %.2fx", s->sim_speed);
+  int sw = tb_width();
+  int sh = tb_height();
+
+  tb_printf(0,    sh/2, 0, 0, "%.2f", s->camera.range_x - s->camera.x); // from x
+  tb_printf(sw-6, sh/2, 0, 0, "%.2f", s->camera.range_x + s->camera.x); //   to x
+  tb_printf(sw/2, sh-1, 0, 0, "%.2f", s->camera.range_y - s->camera.y); // from y
+  tb_printf(sw/2, 0,    0, 0, "%.2f", s->camera.range_y + s->camera.y); //   to y
+
+  tb_printf(0, 0, 0, 0, "%s", s->fast_mode ? "" : "(fast mode active)");
+  tb_printf(0, 1, 0, 0, "%s", s->paused ? "" : "(running the simulation)");
+  tb_printf(0, 2, 0, 0, "dt: %f (%.2f FPS)", s->dt, 1.0/s->dt);
+  tb_printf(0, 3, 0, 0, "simulation speed: %.2fx", s->sim_speed);
 }
 
 void redraw(state_t* s) {
-  erase();
+  tb_clear();
   world_draw(s->world.front, s->world.size, s->camera, s->should_lerp);
   ui_draw(s);
-  refresh();
+  tb_present();
 }
 
 #define dt_from_timestamps(s) (s)->dt = \
@@ -198,8 +207,26 @@ void reload_library(state_t* s) {
   init_library(s);
 }
 
-void events(state_t* s) {
-  switch (getch()) {
+void events(state_t* s, struct tb_event* ev) {
+  if (ev->type != TB_EVENT_KEY) return;
+  switch (ev->key) {
+  case TB_KEY_ARROW_LEFT:
+    s->camera.x -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
+    break;
+  case TB_KEY_ARROW_RIGHT:
+    s->camera.x += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
+    break;
+  case TB_KEY_ARROW_UP:
+    s->camera.y -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
+    break;
+  case TB_KEY_ARROW_DOWN:
+    s->camera.y += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
+    break;
+  case TB_KEY_SPACE:
+    s->paused = !s->paused;
+    break;
+  }
+  switch (ev->ch) {
   case 'h':
     s->camera.range_x *= 0.8;
     break;
@@ -211,19 +238,6 @@ void events(state_t* s) {
     break;
   case 'k':
     s->camera.range_y *= 1.2;
-    break;
-
-  case KEY_LEFT:
-    s->camera.x -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
-    break;
-  case KEY_RIGHT:
-    s->camera.x += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_x;
-    break;
-  case KEY_UP:
-    s->camera.y -= (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
-    break;
-  case KEY_DOWN:
-    s->camera.y += (!s->fast_mode ? FAST_MODE_SPEED : SPEED) * s->camera.range_y;
     break;
 
   case 'c':
@@ -247,7 +261,7 @@ void events(state_t* s) {
     s->should_lerp = !s->should_lerp;
     break;
   case 'n':
-    s->camera.range_x = COLS/2.0;
+    s->camera.range_x = tb_width()/2.0;
     s->camera.x = s->world.size/2.0;
     s->camera.range_y = 1;
     s->camera.y = 0;
@@ -272,26 +286,25 @@ int main(void) {
 
   init_library(&state);
   
-  state.running = true;
-  state.paused  = true;
+  state.running     = true;
+  state.paused      = true;
   state.should_lerp = true;
-  state.sim_speed = 1.0;
-  state.fast_mode = true;
+  state.sim_speed   = 1.0;
+  state.fast_mode   = true;
+  state.camera = (Camera){state.world.size/2.0, 0.0, tb_width()/2.0, 1.0};
 
-  initscr();
-  noecho();
-  nodelay(stdscr, true);
-  keypad(stdscr, true);
-  curs_set(0);
+  struct tb_event ev;
   
-  state.camera = (Camera){state.world.size/2.0, 0.0, COLS/2.0, 1.0};
+  tb_init();
+  tb_hide_cursor();
 
   clock_gettime(CLOCK_MONOTONIC, &state.start);
   while (state.running) {
     clock_gettime(CLOCK_MONOTONIC, &state.end);
     dt_from_timestamps(&state);
     state.start = state.end;
-    events(&state);
+    tb_peek_event(&ev, 0);
+    events(&state, &ev);
 
     if (!state.paused) {
       step_simulation(&state.world.back, &state.world.front, state.world.size, state.dt * state.sim_speed);
@@ -300,7 +313,7 @@ int main(void) {
     redraw(&state);
   }
 
-  endwin();
+  tb_shutdown();
   state.world_free(&state.world);
   dlclose(state.lib);
 }
